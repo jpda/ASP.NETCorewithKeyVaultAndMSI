@@ -28,8 +28,9 @@ namespace ASPCoreWithKV.Pages
                 // grab the KeyVault Secret value on demand
                 var keyVaultClient = new SecretClient(vaultUri: new Uri("https://cm-identity-kv.vault.azure.net"),
                                                                               credential: new ChainedTokenCredential(
-                                                                                                        new AzureCliCredential(), 
-                                                                                                        new ManagedIdentityCredential()));
+                                                                                            new HybridManagedIdentityCredential(), // runs as local MSI via Arc
+                                                                                            new ManagedIdentityCredential(), // runs as MSI in Azure
+                                                                                            new AzureCliCredential())); // runs as me
                 var secretOperation = await keyVaultClient.GetSecretAsync("KVSercret");
                 var secret = secretOperation.Value;
                 SecretValue = secret.Value;

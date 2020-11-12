@@ -10,15 +10,12 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net;
+using Azure.Identity;
 
 namespace ASPCoreWithKV
 {
     public class HybridManagedIdentityCredential : TokenCredential
     {
-        // http://localhost:40342/metadata/identity/oauth2/token?api-version=2020-06-01&resource=<resource>
-        // header Authorization: get-content (C:\ProgramData\AzureConnectedMachineAgent\Tokens\*.key)
-        // windows: C:\ProgramData\AzureConnectedMachineAgent\Tokens\*.key
-        // linux: ... ?
         private readonly HttpClient _client;
         private readonly Dictionary<string, AccessToken> _tokens;
         public HybridManagedIdentityCredential() : this(new HttpClient()) { }
@@ -26,9 +23,7 @@ namespace ASPCoreWithKV
         public HybridManagedIdentityCredential(HttpClient client)
         {
             _client = client;
-            // metadata header required for IMDS endpoint
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Metadata", "true");
-            // a (too-simple) token cache - I think Azure.Identity handles some of its own caching anyway so wouldn't expect this to get called frequently
             _tokens = new Dictionary<string, AccessToken>();
         }
 
@@ -58,9 +53,22 @@ namespace ASPCoreWithKV
             return await GetAccessTokenAsync(scopes);
         }
 
+        // sample implementation, not production ready; 
+        // when using MSI with Azure Arc, the process is different from regular MSIs in Azure
+        // the endpoint is available in the IDENITY_ENDPOINT variable after Arc onboarding
+        // the call is made twice - the first time, to generate and authentication header
+        // the authentication header value is stored in a file, the path to which is returned
+        // in the WWW-Authenticate header
+        // Note that the OS account running the app (your account, a service account, whatever)
+        // will need permission to read that file in order to get the header
+        // Once the file is open, read the data and use that in the second call to actually receive an access_token
+        
         private async Task<AccessToken> GetAccessTokenFromEndpoint(string resource)
         {
-            var url = new Uri($"http://localhost:40342/metadata/identity/oauth2/token?api-version=2020-06-01&resource={resource}");
+            var localIdentityEndpoint = Environment.GetEnvironmentVariable("IDENTITY_ENDPOINT");
+            if (string.IsNullOrWhiteSpace(localIdentityEndpoint)) throw new CredentialUnavailableException("No hybrid IMDS endpoint found");
+
+            var url = new Uri($"{localIdentityEndpoint}?api-version=2020-06-01&resource={resource}");
             Console.WriteLine($"Getting token from: {url} for resource: {resource}");
 
             var response = await _client.GetAsync(url);
@@ -79,8 +87,7 @@ namespace ASPCoreWithKV
                 var tokenExpiresOn = DateTimeOffset.FromUnixTimeSeconds(long.Parse(receivedToken.ExpiresOn));
                 return new AccessToken(receivedToken.AccessToken, tokenExpiresOn);
             }
-            Console.WriteLine(await response.Content.ReadAsStringAsync());
-            return default;
+            throw new CredentialUnavailableException($"Hybrid IMDS not available; {await response.Content.ReadAsStringAsync()}");
         }
     }
 
