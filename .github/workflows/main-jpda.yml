@@ -30,6 +30,7 @@ jobs:
         with:
           enable-managed-identity: true
           enable-AzPsSession: true
+          allow-no-subscriptions: true
 
       # Deploy the ARM template a single command using the runners shell
       - name: Deploy Azure Resource Manager (ARM) Template
